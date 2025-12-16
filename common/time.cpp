@@ -11,6 +11,7 @@
 #include <chrono>
 #include <algorithm>
 #include <cassert>
+#include <sstream>
 
 #ifdef _WIN32
 # include <windows.h>
@@ -212,72 +213,106 @@ static bool service_running(const char *service)
 
 std::pair<bool, std::string> check_ntp_server()
 {
-    char buf[256];
+    std::stringstream msg;
     HKEY w32time = nullptr;
     HKEY timeProviders = nullptr;
-    bool result = false;
-    std::string msg;
+    int count = 0;
 
     try {
-        if (!service_running("W32Time")){
+        if (!service_running("W32Time")) {
             return { false, "Windows time server is not running!" };
         }
 
         w32time = reg_openkey(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\services\\W32Time");
-        // first get the time server + flags from "Parameters/NtpServer"
-        // e.g. time.windows.com,0x9
+        // First get the time server(s) + flags from "Parameters/NtpServer"
+        // e.g. "time.windows.com,0x9 pool.ntp.org,0x9"
+        // Entries are separated by whitespace. Every server name is followed by
+        // a comma and a hexidecimal flag value.
         char server[256];
         DWORD size = 256;
 
         reg_getvalue(w32time, "Parameters", "NtpServer", REG_SZ, server, &size);
 
-        char *onset = strrchr(server, ',');
-        if (onset){
-            int flags;
-            if (sscanf(onset + 1, "%i", &flags) > 0){
-                *onset = 0;
+        std::string_view sv(server, size - 1); // exclude \0!
+        size_t offset = 0;
+        bool warn_special_poll_interval = false;
 
-                if (flags & 1){
-                    // special poll interval
-                    timeProviders = reg_openkey(w32time, "TimeProviders");
+        msg << "NTP servers:\n";
 
-                    DWORD pollint;
-                    size = sizeof(DWORD);
-                    reg_getvalue(timeProviders, "NtpClient", "SpecialPollInterval",
-                                 REG_DWORD, &pollint, &size);
-                    auto pollintstring = seconds_to_string(pollint);
-
-                    snprintf(buf, sizeof(buf), "NTP server: %s, poll interval: %s\n"
-                        "NOTE: disable SpecialPollInterval "
-                        "for more accurate timing (see README)",
-                        server, pollintstring.c_str());
-                } else {
-                    // min/max poll interval
-                    DWORD maxpollint, minpollint;
-                    size = sizeof(DWORD);
-
-                    reg_getvalue(w32time, "Config", "MinPollInterval",
-                                 REG_DWORD, &minpollint, &size);
-                    reg_getvalue(w32time, "Config", "MaxPollInterval",
-                                 REG_DWORD, &maxpollint, &size);
-                    auto minpollintstring = seconds_to_string(1 << minpollint);
-                    auto maxpollintstring = seconds_to_string(1 << maxpollint);
-                    // min/max poll interval are given in powers of 2
-
-                    snprintf(buf, sizeof(buf), "NTP server: %s, min. poll interval: %s, "
-                             "max. poll interval: %s",
-                             server, minpollintstring.c_str(), maxpollintstring.c_str());
-                }
-                msg = buf;
-                result = true;
-            } else {
-                throw std::domain_error("couldn't extract flag from NtpServer value");
+        while (offset != std::string_view::npos) {
+            // skip leading whitespace
+            offset = sv.find_first_not_of(' ', offset);
+            if (offset == std::string_view::npos) {
+                break;
             }
-        } else {
-            throw std::domain_error("value of NtpServer is not comma seperated");
+
+            // parse NTP server name and flags
+            // NB: treat missing flags as "no flags"
+            std::string_view name;
+            int flags = 0;
+            if (auto pos = sv.find(',', offset); pos != std::string_view::npos) {
+                if (sscanf(&sv[pos + 1], "%i", &flags) != 1) {
+                    throw std::domain_error("could not parse flag value in NtpServer list");
+                }
+                name = sv.substr(offset, pos - offset);
+                offset = sv.find(' ', pos);
+            } else {
+                auto end = sv.find(' ', offset);
+                if (end != std::string_view::npos) {
+                    name = sv.substr(offset, end - offset);
+                } else {
+                    name = sv.substr(offset);
+                }
+                offset = end;
+            }
+
+            LOG_DEBUG("NTP server: " << name << ", flags: 0x" << std::hex << flags << std::dec);
+
+            if (flags & 1) {
+                // special poll interval
+                timeProviders = reg_openkey(w32time, "TimeProviders");
+
+                DWORD poll_interval;
+                size = sizeof(DWORD);
+                reg_getvalue(timeProviders, "NtpClient", "SpecialPollInterval",
+                             REG_DWORD, &poll_interval, &size);
+                auto poll_interval_str = seconds_to_string(poll_interval);
+
+                if (count > 0) {
+                    msg << "\n";
+                }
+                msg << "  " << name << " (special poll interval: " << poll_interval_str << ")";
+
+                warn_special_poll_interval = true;
+            } else {
+                // min/max poll interval
+                DWORD min_poll_interval, max_poll_interval;
+                size = sizeof(DWORD);
+
+                reg_getvalue(w32time, "Config", "MinPollInterval",
+                             REG_DWORD, &min_poll_interval, &size);
+                reg_getvalue(w32time, "Config", "MaxPollInterval",
+                             REG_DWORD, &max_poll_interval, &size);
+                // min/max poll interval are given in powers of 2
+                auto min_poll_interval_str = seconds_to_string(1 << min_poll_interval);
+                auto max_poll_interval_str = seconds_to_string(1 << max_poll_interval);
+
+                if (count > 0) {
+                    msg << "\n";
+                }
+                msg << "  " << name << " (min. poll interval: " << min_poll_interval_str
+                    << ", max. poll interval: " << max_poll_interval_str << ")";
+            }
+
+            count++;
+            // move to next list entry (if any)
         }
-    } catch (const std::exception& e){
-        msg = e.what();
+
+        if (warn_special_poll_interval) {
+            msg << "\n\nNOTE: disable SpecialPollInterval for more accurate timing (see README)";
+        }
+    } catch (const std::exception& e) {
+        return { false, e.what() };
     }
 
     if (w32time){
@@ -287,7 +322,11 @@ std::pair<bool, std::string> check_ntp_server()
         RegCloseKey(timeProviders);
     }
 
-    return { result, std::move(msg) };
+    if (count > 0) {
+        return { true, msg.str() };
+    } else {
+        return { false, "No NTP servers provided." };
+    }
 }
 
 #else
