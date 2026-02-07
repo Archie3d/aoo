@@ -655,7 +655,7 @@ AooError AOO_CALL aoo::Source::addStreamMessage(const AooStreamMessage& message)
     } else {
         time = process_samples_ + message.sampleOffset;
     }
-    message_queue_.push(time, message.channel, message.type,
+    message_queue_.emplace(time, message.channel, message.type,
                         (char *)message.data, message.size);
 #if AOO_DEBUG_STREAM_MESSAGE
     LOG_DEBUG("AooSource: add stream message "
@@ -909,7 +909,7 @@ AOO_API AooError AOO_CALL AooSource_pollEvents(AooSource *src){
 AooError AOO_CALL aoo::Source::pollEvents(){
     // always thread-safe
     event_ptr e;
-    while (event_queue_.try_pop(e)) {
+    while (event_queue_.pop(e)) {
         event_handler_(event_context_, &e->cast(), kAooThreadLevelUnknown);
     }
     return kAooOk;
@@ -1513,7 +1513,7 @@ void send_pong_msg(const endpoint& ep, int32_t id, aoo::time_tag tt1,
 
 void Source::dispatch_requests(const sendfn& fn){
     sink_request r;
-    while (requests_.try_pop(r)){
+    while (requests_.pop(r)) {
         switch (r.type) {
         case request_type::stop:
         {
@@ -1942,7 +1942,7 @@ void Source::send_data(const sendfn& fn){
         // Copy into priority queue to avoid draining the RT memory pool
         // when scheduling many messages in the future.
         // NB: we have to pop messages in sync with the audio queue!
-        message_queue_.consume_all([&](auto& msg) {
+        message_queue_.consume_all([&](const auto& msg) {
             auto offset = (int64_t)msg.time - (int64_t)stream_samples_;
         #if SKIP_OUTDATED_MESSAGES
             if (offset < 0) {

@@ -240,11 +240,11 @@ void peer::do_send(Client& client, const sendfn& fn, time_tag now,
     // 3) send outgoing acks
     // LATER send them in batches!
     message_ack ack;
-    while (send_acks_.try_pop(ack)) {
+    while (send_acks_.pop(ack)) {
         send_ack(ack, fn);
     }
     // 4) handle incoming acks
-    while (received_acks_.try_pop(ack)) {
+    while (received_acks_.pop(ack)) {
         if (auto msg = send_buffer_.find(ack.sequence)) {
             if (ack.frame_index >= 0) {
                 msg->ack_frame(ack.frame_index);
@@ -723,7 +723,7 @@ void peer::do_handle_client_message(Client& client, const message_packet& p, Aoo
                       << p.sequence << ", frame: " << p.frame_index  << ") from " << *this);
         #endif
             // don't forget to acknowledge!
-            send_acks_.push(p.sequence, p.frame_index);
+            send_acks_.emplace(p.sequence, p.frame_index);
             return;
         }
         if (p.sequence > last_pushed) {
@@ -786,7 +786,7 @@ void peer::do_handle_client_message(Client& client, const message_packet& p, Aoo
             }
         }
         // schedule acknowledgement
-        send_acks_.push(p.sequence, p.frame_index);
+        send_acks_.emplace(p.sequence, p.frame_index);
     } else {
         // *** unreliable message ***
         if (p.num_frames > 1) {
@@ -824,7 +824,7 @@ void peer::handle_ack(Client &client, osc::ReceivedMessageArgumentIterator it, i
         LOG_DEBUG("AooClient: got ack (seq: " << seq
                   << ", frame: " << frame << ") from " << *this);
     #endif
-        received_acks_.push(seq, frame);
+        received_acks_.emplace(seq, frame);
     }
 }
 
@@ -840,7 +840,7 @@ void peer::handle_ack(Client &client, const AooByte *data, AooSize size) {
                 LOG_DEBUG("AooClient: got ack (seq: " << seq
                           << ", frame: " << frame << ") from " << *this);
             #endif
-                received_acks_.push(seq, frame);
+                received_acks_.emplace(seq, frame);
             }
             return; // done
         }
