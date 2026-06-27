@@ -165,7 +165,11 @@ T& as(void *p){
     return *reinterpret_cast<T *>(p);
 }
 
-#define CHECKARG(type) assert(size == sizeof(type))
+#define CHECKARG(type)                  \
+    assert(size == sizeof(type));       \
+    if (size != sizeof(type)) {         \
+        return kAooErrorBadArgument;    \
+    }                                   \
 
 #define GETSINKARG \
     sink_lock lock(sinks_);             \
@@ -337,15 +341,15 @@ AooError AOO_CALL aoo::Source::control(
     // set/get time DLL filter bandwidth
     case kAooCtlSetDllBandwidth:
     {
-        CHECKARG(float);
-        auto bw = std::max<double>(0, std::min<double>(1, as<float>(ptr)));
+        CHECKARG(double);
+        auto bw = std::max<double>(0, std::min<double>(1, as<double>(ptr)));
         dll_bandwidth_.store(bw);
         reset_timer();
         break;
     }
     case kAooCtlGetDllBandwidth:
-        CHECKARG(float);
-        as<float>(ptr) = dll_bandwidth_.load();
+        CHECKARG(double);
+        as<double>(ptr) = dll_bandwidth_.load();
         break;
     case kAooCtlResetDll:
         reset_timer();

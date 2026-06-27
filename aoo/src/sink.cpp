@@ -130,9 +130,13 @@ T& as(void *p){
 
 } // aoo
 
-#define CHECKARG(type) assert(size == sizeof(type))
+#define CHECKARG(type)                  \
+    assert(size == sizeof(type));       \
+    if (size != sizeof(type)) {         \
+        return kAooErrorBadArgument;    \
+    }                                   \
 
-#define GETSOURCEARG \
+#define GETSOURCEARG                    \
     source_lock lock(sources_);         \
     auto src = get_source_arg(index);   \
     if (!src) {                         \
@@ -258,15 +262,15 @@ AooError AOO_CALL aoo::Sink::control(
     // time DLL filter bandwidth
     case kAooCtlSetDllBandwidth:
     {
-        CHECKARG(float);
-        auto bw = std::max<double>(0, std::min<double>(1, as<float>(ptr)));
+        CHECKARG(double);
+        auto bw = std::max<double>(0, std::min<double>(1, as<double>(ptr)));
         dll_bandwidth_.store(bw);
         reset_timer();
         break;
     }
     case kAooCtlGetDllBandwidth:
-        CHECKARG(float);
-        as<float>(ptr) = dll_bandwidth_.load();
+        CHECKARG(double);
+        as<double>(ptr) = dll_bandwidth_.load();
         break;
     // real samplerate
     case kAooCtlGetRealSampleRate:
