@@ -108,11 +108,14 @@ public:
      * \param numSamples the number of samples per channel
      * \param t current NTP time; \see aoo_getCurrentNtpTime
      * \param messageHandler (optional) stream message handler function
+     * \param audioHandler (optional) stream audio handler function
      * \param user (optional) user data that will be passed to the message handler
      */
     virtual AooError AOO_CALL process(
             AooSample **data, AooInt32 numSamples, AooNtpTime t,
-            AooStreamMessageHandler messageHandler, void *user) = 0;
+            AooStreamMessageHandler messageHandler,
+            AooStreamAudioHandler audioHandler,
+            void *user) = 0;
 
     /** \brief set event handler function and event handling mode
      *

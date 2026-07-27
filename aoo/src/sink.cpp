@@ -507,13 +507,17 @@ AooError AOO_CALL aoo::Sink::send(AooSendFunc fn, void *user){
 
 AOO_API AooError AOO_CALL AooSink_process(
         AooSink *sink, AooSample **data, AooInt32 nsamples, AooNtpTime t,
-        AooStreamMessageHandler messageHandler, void *user) {
-    return sink->process(data, nsamples, t, messageHandler, user);
+        AooStreamMessageHandler messageHandler,
+        AooStreamAudioHandler audioHandler,
+        void *user) {
+    return sink->process(data, nsamples, t, messageHandler, audioHandler, user);
 }
 
 AooError AOO_CALL aoo::Sink::process(
         AooSample **data, AooInt32 nsamples, AooNtpTime t,
-        AooStreamMessageHandler messageHandler, void *user) {
+        AooStreamMessageHandler messageHandler,
+        AooStreamAudioHandler audioHandler,
+        void *user) {
     // check nsamples
     assert(fixed_blocksize() ? nsamples == blocksize_ : nsamples <= blocksize_);
     // Always update timers, even if there are no sources.
@@ -575,7 +579,7 @@ AooError AOO_CALL aoo::Sink::process(
     // so we do not need to lock the source mutex!
     source_lock lock(sources_);
     for (auto it = sources_.begin(); it != sources_.end();){
-        if (it->process(*this, data, nsamples, t, messageHandler, user)){
+        if (it->process(*this, data, nsamples, t, messageHandler, audioHandler, user)){
             didsomething = true;
         } else if (!it->check_active(*this)){
             LOG_VERBOSE("AooSink: removed inactive source " << it->ep);
@@ -1728,7 +1732,9 @@ void source_desc::send(const Sink& s, const sendfn& fn){
 #define STOP_INTERVAL 1.0
 
 bool source_desc::process(const Sink& s, AooSample **buffer, int32_t nsamples,
-                          time_tag tt, AooStreamMessageHandler handler, void *user)
+                          time_tag tt, AooStreamMessageHandler handler,
+                          AooStreamAudioHandler audioHandler,
+                          void *user)
 {
     // synchronize with update()!
     // the mutex should be uncontended most of the time.
@@ -1941,6 +1947,15 @@ bool source_desc::process(const Sink& s, AooSample **buffer, int32_t nsamples,
     // out-of-bound source channels are silently ignored.
     if (buffer) {
         auto realnchannels = s.nchannels();
+
+        if (audioHandler) {
+            AooAudioData audioData;
+            audioData.data = buf;
+            audioData.numChannels = realnchannels;
+            audioData.numSamples = nsamples;
+            audioHandler(ep.id, &audioData, user);
+        }
+
         for (int i = 0; i < nchannels; ++i){
             auto chn = i + channel_;
             if (chn < realnchannels){

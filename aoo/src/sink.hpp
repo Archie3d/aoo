@@ -181,7 +181,9 @@ public:
     void send(const Sink& s, const sendfn& fn);
 
     bool process(const Sink& s, AooSample **buffer, int32_t nsamples,
-                 time_tag tt, AooStreamMessageHandler handler, void *user);
+                 time_tag tt, AooStreamMessageHandler handler,
+                 AooStreamAudioHandler audioHandler,
+                 void *user);
 
     void invite(const Sink& s, AooId token, AooData *metadata);
 
@@ -323,7 +325,9 @@ public:
     AooError AOO_CALL send(AooSendFunc fn, void *user) override;
 
     AooError AOO_CALL process(AooSample **data, AooInt32 nsamples, AooNtpTime t,
-                              AooStreamMessageHandler messageHandler, void *user) override;
+                              AooStreamMessageHandler messageHandler,
+                              AooStreamAudioHandler audioHandler,
+                              void *user) override;
 
     AooError AOO_CALL setEventHandler(AooEventHandler fn, void *user,
                                       AooEventMode mode) override;

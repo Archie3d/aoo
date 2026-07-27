@@ -511,6 +511,19 @@ typedef struct AooData
 
 /*------------------------------------------------------------------*/
 
+/** \brief view on audio data */
+typedef struct AooAudioData
+{
+    /** the number of channels */
+    AooInt32 numChannels;
+    /** the number of samples */
+    AooInt32 numSamples;
+    /** the audio data (interleaved) */
+    AooSample *data;
+} AooAudioData;
+
+/*------------------------------------------------------------------*/
+
 /** \brief AOO stream message */
 typedef struct AooStreamMessage
 {
@@ -545,6 +558,21 @@ typedef void (AOO_CALL *AooStreamMessageHandler)(
         const AooStreamMessage *message,
         /** the AOO source that sent the message */
         const AooEndpoint *source
+);
+
+/*------------------------------------------------------------------*/
+
+/** \brief stream audio handler
+ *
+ * The type of function that is passed to #AooSink::process
+ * for handling audio data.
+ * This can be used to perform custom audio processing on the received
+ * audio from individual sources before it gets mixed into the sink output.
+ */
+typedef void (AOO_CALL *AooStreamAudioHandler)(
+        AooId sourceId,
+        AooAudioData *audio,
+        void *user
 );
 
 /*------------------------------------------------------------------*/
