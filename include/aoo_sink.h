@@ -45,7 +45,9 @@ AOO_API AooError AOO_CALL AooSink_send(
 /** \copydoc AooSink::process() */
 AOO_API AooError AOO_CALL AooSink_process(
         AooSink *sink, AooSample **data, AooInt32 numSamples, AooNtpTime t,
-        AooStreamMessageHandler messageHandler, void *user);
+        AooStreamMessageHandler messageHandler,
+        AooStreamAudioHandler audioHandler,
+        void *user);
 
 /** \copydoc AooSink::setEventHandler() */
 AOO_API AooError AOO_CALL AooSink_setEventHandler(
