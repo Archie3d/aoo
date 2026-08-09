@@ -132,6 +132,8 @@ INSTANCEMETHODS::
 
 PRIVATE:: prFindSink, prAddSink, prRemoveSink, prParseEvent
 
+METHOD:: free
+release the controller. This is called automatically when the Synth is freed.
 
 METHOD:: isOpen
 returns:: whether the object has been created successfully
@@ -294,6 +296,9 @@ the sink ID
 
 ARGUMENT:: active
 whether the sink should be initially active
+
+ARGUMENT:: channelOffset
+the initial sink channel offset, see link::#-channelOffset::.
 
 ARGUMENT:: action
 a function to be called when the command as finished.

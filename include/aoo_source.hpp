@@ -67,7 +67,7 @@ public:
      * \param numChannels the max. number of channels
      * \param sampleRate the sample rate
      * \param maxBlockSize the max. number of samples per block
-     * \param flags optional flags (currently always 0)
+     * \param flags optional flags
      */
     virtual AooError AOO_CALL setup(
             AooInt32 numChannels, AooSampleRate sampleRate,
@@ -174,7 +174,7 @@ public:
     virtual AooError AOO_CALL removeSink(const AooEndpoint& sink) = 0;
 
     /** \brief remove all sinks */
-    virtual AooError AOO_CALL removeAll() = 0;
+    virtual AooError AOO_CALL removeAllSinks() = 0;
 
     /** \brief accept/decline an invitation
      *

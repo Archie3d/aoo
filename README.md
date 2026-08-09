@@ -7,7 +7,9 @@ AOO is a lightweight and flexible peer-to-peer audio streaming and messaging sol
 
 It is fundamentally connectionless and allows to send audio and messages in real time and on demand between arbitrary network endpoints.
 
-The C/C++ library can be easily embedded in host applications or plugins. It even runs on embedded devices, such as the ESP32. In addition, the project contains a Pure Data external, and soon also a SuperCollider extension.
+The C/C++ library can be easily embedded in host applications or plugins. It even runs on embedded devices, such as the ESP32.
+In addition, the project contains a Pure Data external and a SuperCollider extension.
+There is also a third-party Max/MSP external ("AOO for Max"): https://github.com/ddgg-el/aoo-for-max
 
 For more information please visit https://aoo.iem.at.
 
@@ -163,6 +165,28 @@ If you want to host your own (private or public) AOO server, you only have to ru
 on the command line or as a service and make sure that clients can connect to your machine.
 
 Run `aooserver -h` to see all available options.
+
+---
+
+# Notes
+
+### Windows Time Service
+
+By default, the Windows Time Service (`W32Time`) is often configured so that time synchronization is done with
+a fixed "special poll interval" — instead of a min. and max. poll interval — that can be as large
+as 7 days (!). The Pd/SC externals try to detect this and print a warning to the console.
+
+You can disable the special poll interval by running the following command in `cmd.exe`:
+```
+w32tm /config /manualpeerlist:pool.ntp.org,0x8 /syncfromflags:manual /update
+```
+
+**NOTE**: the command above also replaces the default Windows time server (`time.windows.com`) with `pool.ntp.org` for better reliability and accuracy.
+
+You can check the current status with
+```
+w32tm /query /status
+```
 
 ---
 

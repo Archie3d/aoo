@@ -50,6 +50,7 @@ add_library(aoo
     "../common/priority_queue.hpp"
     "../common/sync.cpp"
     "../common/sync.hpp"
+    "../common/tagged_integer.hpp"
     "../common/time.cpp"
     "../common/time.hpp"
     "../common/utils.hpp"
@@ -159,7 +160,7 @@ if (LINUX)
 endif()
 
 if (MINGW)
-    if (NOT AOO_STATIC_LIBS)
+    if (NOT AOO_STATIC_RUNTIME)
         target_link_libraries(aoo PRIVATE pthread)
     endif()
     if (AOO_USE_OPUS)

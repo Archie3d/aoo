@@ -61,12 +61,22 @@ bool unregisterClient(int port, const aoo::ip_address& addr) {
 
 // TODO: honor Server verbosity
 void AOO_CALL SCLog(AooLogLevel level, const char *msg) {
-    if (level == kAooLogLevelError) {
+    switch (level) {
+    case kAooLogLevelError:
         Print("ERROR: %s\n", msg);
-    } else if (level == kAooLogLevelWarning) {
+        break;
+    case kAooLogLevelWarning:
         Print("WARNING: %s\n", msg);
-    } else {
+        break;
+    case kAooLogLevelInfo:
         Print("%s\n", msg);
+        break;
+    case kAooLogLevelDebug:
+        Print("DEBUG: %s\n", msg);
+        break;
+    default:
+        Print("VERBOSE: %s\n", msg);
+        break;
     }
 }
 
@@ -504,7 +514,7 @@ PluginLoad(Aoo) {
     if (auto [ok, msg] = aoo::check_ntp_server(); ok){
         Print("%s\n", msg.c_str());
     } else {
-        Print("ERROR: %s\n", msg.c_str());
+        Print("WARNING: %s\n", msg.c_str());
     }
     Print("\n");
 

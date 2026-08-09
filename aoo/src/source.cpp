@@ -165,7 +165,11 @@ T& as(void *p){
     return *reinterpret_cast<T *>(p);
 }
 
-#define CHECKARG(type) assert(size == sizeof(type))
+#define CHECKARG(type)                  \
+    assert(size == sizeof(type));       \
+    if (size != sizeof(type)) {         \
+        return kAooErrorBadArgument;    \
+    }                                   \
 
 #define GETSINKARG \
     sink_lock lock(sinks_);             \
@@ -216,8 +220,8 @@ AooError AOO_CALL aoo::Source::control(
         GETSINKARG
         auto chn = as<int32_t>(ptr);
         sink->set_channel(chn);
-        LOG_VERBOSE("AooSource: send to sink " << sink->ep
-                    << " on channel " << chn);
+        LOG_INFO("AooSource: send to sink " << sink->ep
+                 << " on channel " << chn);
         break;
     }
     case kAooCtlGetSinkChannelOffset:
@@ -337,15 +341,15 @@ AooError AOO_CALL aoo::Source::control(
     // set/get time DLL filter bandwidth
     case kAooCtlSetDllBandwidth:
     {
-        CHECKARG(float);
-        auto bw = std::max<double>(0, std::min<double>(1, as<float>(ptr)));
+        CHECKARG(double);
+        auto bw = std::max<double>(0, std::min<double>(1, as<double>(ptr)));
         dll_bandwidth_.store(bw);
         reset_timer();
         break;
     }
     case kAooCtlGetDllBandwidth:
-        CHECKARG(float);
-        as<float>(ptr) = dll_bandwidth_.load();
+        CHECKARG(double);
+        as<double>(ptr) = dll_bandwidth_.load();
         break;
     case kAooCtlResetDll:
         reset_timer();
@@ -655,7 +659,7 @@ AooError AOO_CALL aoo::Source::addStreamMessage(const AooStreamMessage& message)
     } else {
         time = process_samples_ + message.sampleOffset;
     }
-    message_queue_.push(time, message.channel, message.type,
+    message_queue_.emplace(time, message.channel, message.type,
                         (char *)message.data, message.size);
 #if AOO_DEBUG_STREAM_MESSAGE
     LOG_DEBUG("AooSource: add stream message "
@@ -782,6 +786,7 @@ AooError AOO_CALL aoo::Source::process(
     if (!encoder_){
         return kAooErrorIdle;
     }
+    assert(format_ != nullptr);
 
     // non-interleaved -> interleaved
     // only as many channels as current format needs
@@ -839,25 +844,41 @@ AooError AOO_CALL aoo::Source::process(
             return kAooErrorOverflow;
         }
     } else {
-        // try to write to resampler
-        if (!resampler_.write(buf, nsamples)) {
-            LOG_WARNING("AooSource: send buffer overflow");
-            add_xrun(nsamples);
-            // NB: clients are still supposed to call send() to drain the buffer
-            return kAooErrorOverflow;
-        }
-        // try to move samples from resampler to audiobuffer
-        while (audio_queue_.write_available()){
-            // copy audio samples
-            auto ptr = (block_data *)audio_queue_.write_data();
-            if (!resampler_.read(ptr->data, format_->blockSize)) {
-                break;
-            }
-            // push samplerate
-            ptr->sr = sr;
+        auto drain_resampler = [this, sr]() {
+            bool success = false;
 
-            audio_queue_.write_commit();
+            while (audio_queue_.write_available()){
+                // copy audio samples
+                auto ptr = (block_data *)audio_queue_.write_data();
+                if (!resampler_.read(ptr->data, format_->blockSize))
+                    break;
+
+                // push samplerate
+                ptr->sr = sr;
+
+                audio_queue_.write_commit();
+
+                success = true;
+            }
+
+            return success;
+        };
+
+        // try to fill the resampler
+        while (!resampler_.write(buf, nsamples)) {
+            // try to make room in the resampler, in case we couldn't drain it
+            // the last time (because the send thread was busy)
+            if (!drain_resampler()) {
+                // otherwise return overflow error
+                // NB: clients are still supposed to call send() to drain the ring buffer
+                LOG_WARNING("AooSource: send buffer overflow");
+                add_xrun(nsamples);
+                return kAooErrorOverflow;
+            }
         }
+
+        // try to move samples from resampler to ring buffer
+        drain_resampler();
     }
     return kAooOk;
 }
@@ -892,7 +913,7 @@ AOO_API AooError AOO_CALL AooSource_pollEvents(AooSource *src){
 AooError AOO_CALL aoo::Source::pollEvents(){
     // always thread-safe
     event_ptr e;
-    while (event_queue_.try_pop(e)) {
+    while (event_queue_.pop(e)) {
         event_handler_(event_context_, &e->cast(), kAooThreadLevelUnknown);
     }
     return kAooOk;
@@ -1000,7 +1021,6 @@ AOO_API AooError AOO_CALL AooSource_removeSink(
 
 AooError AOO_CALL aoo::Source::removeSink(const AooEndpoint& ep) {
     ip_address addr((const sockaddr *)ep.address, ep.addrlen);
-
     // NB: sinks can be added/removed from different threads,
     // so we have to lock a mutex to avoid the ABA problem!
     sync::scoped_lock<sync::mutex> lock1(sink_mutex_);
@@ -1012,21 +1032,19 @@ AooError AOO_CALL aoo::Source::removeSink(const AooEndpoint& ep) {
     }
 }
 
-AOO_API AooError AOO_CALL AooSource_removeAll(AooSource *source)
+AOO_API AooError AOO_CALL AooSource_removeAllSinks(AooSource *source)
 {
-    return source->removeAll();
+    return source->removeAllSinks();
 }
 
-AooError AOO_CALL aoo::Source::removeAll() {
-    // just lock once for all stream ids
-    scoped_shared_lock lock1(update_mutex_);
-
+AooError AOO_CALL aoo::Source::removeAllSinks() {
     bool running = is_running();
-
     // NB: sinks can be added/removed from different threads,
     // so we have to lock a mutex to avoid the ABA problem!
-    sync::scoped_lock<sync::mutex> lock2(sink_mutex_);
-    sink_lock lock3(sinks_);
+    sync::scoped_lock<sync::mutex> lock1(sink_mutex_);
+    sink_lock lock2(sinks_);
+    // just lock once for all stream ids, see do_remove_sink().
+    scoped_shared_lock lock3(update_mutex_);
     // send /stop messages
     for (auto& s : sinks_){
         if (running && s.is_active()){
@@ -1222,6 +1240,7 @@ AooError Source::set_format(AooFormat &f){
     // setup encoder - will validate format!
     if (auto err = AooEncoder_setup(encoder_.get(), &f); err != kAooOk) {
         encoder_ = nullptr;
+        format_ = nullptr;
         LOG_ERROR("AooSource: couldn't setup encoder!");
         return err;
     }
@@ -1348,8 +1367,9 @@ void Source::handle_xrun(int32_t nsamples) {
     reset_timer();
 }
 
-void Source::update_audio_queue(){
-    if (encoder_ && samplerate_ > 0){
+void Source::update_audio_queue() {
+    if (encoder_ && samplerate_ > 0) {
+        assert(format_ != nullptr);
         // convert buffersize from seconds to samples
         auto buffersize = buffersize_.load();
         int32_t buffersamples = buffersize * (double)samplerate_;
@@ -1432,7 +1452,7 @@ void send_start_msg(const endpoint& ep, int32_t id, int32_t stream_id,
     ep.send(msg, fn);
 }
 
-// /aoo/sink/<id>/stop <src> <stream_id> <offset>
+// /aoo/sink/<id>/stop <src> <stream_id> <last_seq> <offset>
 void send_stop_msg(const endpoint& ep, int32_t id, int32_t stream,
                    int32_t last_seq, int32_t offset, const sendfn& fn) {
     LOG_DEBUG("AooSource: send " kAooMsgStop " to " << ep
@@ -1497,7 +1517,7 @@ void send_pong_msg(const endpoint& ep, int32_t id, aoo::time_tag tt1,
 
 void Source::dispatch_requests(const sendfn& fn){
     sink_request r;
-    while (requests_.try_pop(r)){
+    while (requests_.pop(r)) {
         switch (r.type) {
         case request_type::stop:
         {
@@ -1559,6 +1579,7 @@ void Source::send_start(const sendfn& fn){
         return;
     }
 #endif
+    assert(format_ != nullptr);
 
     // calculate stream start time.
     auto tt = stream_tt_ + aoo::time_tag::from_seconds(stream_samples_ / (double)format_->sampleRate);
@@ -1575,6 +1596,7 @@ void Source::send_start(const sendfn& fn){
 
     // cache stream format
     auto format_id = format_id_;
+    assert(format_id >= 0);
 
     AooFormatStorage f;
     memcpy(&f, format_.get(), format_->structSize);
@@ -1904,6 +1926,7 @@ void Source::send_data(const sendfn& fn){
         if (!encoder_ || sequence_ == invalid_stream) {
             return;
         }
+        assert(format_ != nullptr);
 
         // reset and reserve space for message count
         sendbuffer_.resize(4);
@@ -1923,12 +1946,12 @@ void Source::send_data(const sendfn& fn){
         // Copy into priority queue to avoid draining the RT memory pool
         // when scheduling many messages in the future.
         // NB: we have to pop messages in sync with the audio queue!
-        message_queue_.consume_all([&](auto& msg) {
+        message_queue_.consume_all([&](const auto& msg) {
             auto offset = (int64_t)msg.time - (int64_t)stream_samples_;
         #if SKIP_OUTDATED_MESSAGES
             if (offset < 0) {
                 // skip outdated message; can happen with xrun blocks
-                LOG_VERBOSE("AooSource: skip stream message (offset: " << offset << ")");
+                LOG_INFO("AooSource: skip stream message (offset: " << offset << ")");
             } else
         #endif
             message_prio_queue_.emplace(msg.time, msg.channel, msg.type, msg.data, msg.size);
@@ -2324,10 +2347,10 @@ void Source::handle_start_request(const osc::ReceivedMessage& msg,
 
             notify_start();
         } else {
-            LOG_VERBOSE("AooSource: ignoring '" << kAooMsgStart << "' message: sink not active");
+            LOG_INFO("AooSource: ignoring '" << kAooMsgStart << "' message: sink not active");
         }
     } else {
-        LOG_VERBOSE("AooSource: ignoring '" << kAooMsgStart << "' message: sink not found");
+        LOG_INFO("AooSource: ignoring '" << kAooMsgStart << "' message: sink not found");
     }
 }
 
@@ -2356,11 +2379,11 @@ void Source::handle_stop_request(const osc::ReceivedMessage& msg,
             r.stop.offset = 0;
             push_request(r);
         } else {
-            LOG_VERBOSE("AooSource: ignoring '" << kAooMsgStop << "' message: sink is active");
+            LOG_INFO("AooSource: ignoring '" << kAooMsgStop << "' message: sink is active");
         }
     } else {
         // TODO: should we still send /stop message?
-        LOG_VERBOSE("AooSource: ignoring '" << kAooMsgStop<< "' message: sink not found");
+        LOG_INFO("AooSource: ignoring '" << kAooMsgStop<< "' message: sink not found");
     }
 }
 
@@ -2388,7 +2411,7 @@ void Source::handle_data_request(const osc::ReceivedMessage& msg,
     auto sink = find_sink(addr, id);
     if (sink){
         if (sink->stream_id() != stream_id){
-            LOG_VERBOSE("ignoring '" << kAooMsgData
+            LOG_INFO("ignoring '" << kAooMsgData
                         << "' message: stream ID mismatch (outdated?)");
             return;
         }
@@ -2403,10 +2426,10 @@ void Source::handle_data_request(const osc::ReceivedMessage& msg,
                 sink->push_data_request(r);
             }
         } else {
-            LOG_VERBOSE("AooSource: ignoring '" << kAooMsgData << "' message: sink not active");
+            LOG_INFO("AooSource: ignoring '" << kAooMsgData << "' message: sink not active");
         }
     } else {
-        LOG_VERBOSE("AooSource: ignoring '" << kAooMsgData << "' message: sink not found");
+        LOG_INFO("AooSource: ignoring '" << kAooMsgData << "' message: sink not found");
     }
 }
 
@@ -2442,7 +2465,7 @@ void Source::handle_data_request(const AooByte *msg, int32_t n,
     auto sink = find_sink(addr, id);
     if (sink){
         if (sink->stream_id() != stream_id){
-            LOG_VERBOSE("AooSource: ignore binary data message: stream ID mismatch (outdated?)");
+            LOG_INFO("AooSource: ignore binary data message: stream ID mismatch (outdated?)");
             return;
         }
         if (sink->is_active()){
@@ -2460,10 +2483,10 @@ void Source::handle_data_request(const AooByte *msg, int32_t n,
                 sink->push_data_request(r);
             }
         } else {
-            LOG_VERBOSE("AooSource: ignore binary data message: sink not active");
+            LOG_INFO("AooSource: ignore binary data message: sink not active");
         }
     } else {
-        LOG_VERBOSE("AooSource: ignore binary data message: sink not found");
+        LOG_INFO("AooSource: ignore binary data message: sink not found");
     }
 }
 
@@ -2513,7 +2536,7 @@ void Source::handle_invite(const osc::ReceivedMessage& msg,
         // NOTE: when we accept an invitation, we essentially start a new stream.
         // Even if our initial /start messages was lost, the subsequent /data messages
         // (with a matching stream ID) would tell the sink that the invitation has been accepted.
-        LOG_VERBOSE("AooSource: " << sink->ep << ": ignore redundant/outdated invitation");
+        LOG_INFO("AooSource: " << sink->ep << ": ignore redundant/outdated invitation");
     }
 }
 
@@ -2544,8 +2567,8 @@ void Source::handle_uninvite(const osc::ReceivedMessage& msg,
                 // let the user handle the uninvitation, don't send a /stop message yet!
                 return;
             } else {
-                LOG_VERBOSE("AooSource: ignoring '" << kAooMsgUninvite
-                            << "' message: stream token mismatch (outdated?)");
+                LOG_INFO("AooSource: ignoring '" << kAooMsgUninvite
+                          << "' message: stream token mismatch (outdated?)");
                 // TODO: should we just return instead?
             }
         } else {
@@ -2555,7 +2578,7 @@ void Source::handle_uninvite(const osc::ReceivedMessage& msg,
                       << " sink not active (/stop message got lost?)");
         }
     } else {
-        LOG_VERBOSE("ignoring '" << kAooMsgUninvite << "' message: sink not found");
+        LOG_INFO("ignoring '" << kAooMsgUninvite << "' message: sink not found");
         // Don't return because we still want to send a /stop message, see below.
     }
     // Tell the remote side that we have stopped. If the sink is NULL, just use
@@ -2589,10 +2612,10 @@ void Source::handle_ping(const osc::ReceivedMessage& msg,
             r.pong.tt2 = aoo::time_tag::now(); // local receive time
             push_request(r);
         } else {
-            LOG_VERBOSE("AooSource: ignoring '" << kAooMsgPing << "' message: sink not active");
+            LOG_INFO("AooSource: ignoring '" << kAooMsgPing << "' message: sink not active");
         }
     } else {
-        LOG_VERBOSE("AooSource: ignoring '" << kAooMsgPing << "' message: sink not found");
+        LOG_INFO("AooSource: ignoring '" << kAooMsgPing << "' message: sink not found");
     }
 }
 
@@ -2620,10 +2643,10 @@ void Source::handle_pong(const osc::ReceivedMessage& msg,
             auto e = make_event<sink_ping_event>(sink->ep, tt1, tt2, tt3, tt4, packetloss);
             send_event(std::move(e), kAooThreadLevelNetwork);
         } else {
-            LOG_VERBOSE("AooSource: ignoring '" << kAooMsgPong << "' message: sink not active");
+            LOG_INFO("AooSource: ignoring '" << kAooMsgPong << "' message: sink not active");
         }
     } else {
-        LOG_VERBOSE("AooSource: ignoring '" << kAooMsgPong << "' message: sink not found");
+        LOG_INFO("AooSource: ignoring '" << kAooMsgPong << "' message: sink not found");
     }
 }
 

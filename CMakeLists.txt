@@ -19,7 +19,9 @@ include(CheckCXXCompilerFlag)
 include(cmake/test_atomic.cmake)
 include(cmake/test_linker_flag.cmake)
 
-message(STATUS "\n*** Global settings ***\n")
+message(STATUS "")
+message(STATUS "*** Global settings ***")
+message(STATUS "")
 
 if (UNIX AND NOT APPLE AND NOT MINGW)
     set(LINUX TRUE)
@@ -62,7 +64,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if (NOT APPLE)
-    set(CMAKE_INSTALL_RPATH $ORIGIN)
+    set(CMAKE_INSTALL_RPATH $ORIGIN/../lib)
 endif()
 
 if (LINUX)
@@ -172,7 +174,10 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 if (AOO_USE_OPUS)
     option(AOO_LOCAL_OPUS "use local Opus library" ON)
     if (AOO_LOCAL_OPUS)
-        message(STATUS "\n*** Opus library ***\n")
+        message(STATUS "")
+        message(STATUS "*** Opus library ***")
+        message(STATUS "")
+
         add_subdirectory("deps/opus" EXCLUDE_FROM_ALL)
         if (NOT BUILD_SHARED_LIBS)
             # HACK: make sure that we don't export any symbols
@@ -188,19 +193,24 @@ endif()
 if (AOO_BUILD_EXAMPLES)
     option(AOO_LOCAL_PORTAUDIO "use local portaudio library" ON)
     if (AOO_LOCAL_PORTAUDIO)
-        message(STATUS "\n*** portaudio library ***\n")
+        message(STATUS "")
+        message(STATUS "*** portaudio library ***")
+        message(STATUS "")
+
+        # for portaudio v19.8 <=
+        set(PA_BUILD_SHARED_LIBS OFF)
         # for portaudio v19.7 >=
         set(PA_BUILD_SHARED OFF)
         add_subdirectory("deps/portaudio" EXCLUDE_FROM_ALL)
-        if (NOT TARGET PortAudio::PortAudio)
+        if (NOT TARGET PortAudio::portaudio)
             # at the time of writing, portaudio does not export
-            # PortAudio::PortAudio when included as a subproject.
-            if (TARGET PortAudio)
+            # PortAudio::portaudio when included as a subproject.
+            if (TARGET portaudio)
                 # portaudio v19.8 <=
-                add_library(PortAudio::PortAudio ALIAS PortAudio)
+                add_library(PortAudio::portaudio ALIAS portaudio)
             elseif (TARGET portaudio_static)
                 # portaudio v19.7 >=
-                add_library(PortAudio::PortAudio ALIAS portaudio_static)
+                add_library(PortAudio::portaudio ALIAS portaudio_static)
             else()
                 message(FATAL_ERROR "missing portaudio target")
             endif()
@@ -223,6 +233,10 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 # AOO compile time options
 #-------------------------------------------------------------
 
+message(STATUS "")
+message(STATUS "*** AOO compile time options ***")
+message(STATUS "")
+
 if (CMAKE_COMPILER_IS_GNUCXX)
     # report stack usage
     option(AOO_STACK_USAGE "report stack usage" OFF)
@@ -236,7 +250,7 @@ message(STATUS "Audio sample size: ${AOO_SAMPLE_SIZE} bits")
 
 # logging
 set(AOO_LOG_LEVEL "Warning" CACHE STRING "compile time log level")
-set_property(CACHE AOO_LOG_LEVEL PROPERTY STRINGS "None;Error;Warning;Verbose;Debug")
+set_property(CACHE AOO_LOG_LEVEL PROPERTY STRINGS "Silent;Error;Warning;Info;Debug;Verbose")
 message(STATUS "Log level: ${AOO_LOG_LEVEL}")
 
 # opus support
@@ -256,7 +270,7 @@ message(STATUS "IPv6 support: ${AOO_USE_IPV6}")
 # compile time options
 option(AOO_CUSTOM_ALLOCATOR "build with custom allocator support" OFF)
 mark_as_advanced(AOO_CUSTOM_ALLOCATOR)
-message(STATUS "Use custom allocator: ${AOO_CUSTOM_ALLOCATOR}")
+message(STATUS "Custom allocator support: ${AOO_CUSTOM_ALLOCATOR}")
 
 set(AOO_MAX_PACKET_SIZE 4096 CACHE STRING "max. UDP packet size")
 mark_as_advanced(AOO_MAX_PACKET_SIZE)
@@ -298,7 +312,7 @@ mark_as_advanced(AOO_CLIENT_SIMULATE)
 #-----------------------------------------------------------------
 
 # properties shared by all targets in this repository,
-# but shich should not be exported to library consumers.
+# but which should not be exported to library consumers.
 add_library(aoo_common INTERFACE)
 
 # AOO_LOG_LEVEL is also used by the Pd external and some programs
@@ -313,7 +327,7 @@ if (CMAKE_COMPILER_IS_GNUCXX OR CMAKE_COMPILER_IS_CLANG)
     target_compile_options(aoo_common INTERFACE -Wall -Wextra)
     # disable some useless and noisy warnings
     target_compile_options(aoo_common INTERFACE
-        -Wno-unused-parameter -Wno-unused-variable -Wno-sign-compare)
+        -Wno-unused-parameter -Wno-unused-variable -Wno-sign-compare -Wno-psabi)
     # some warnings should be errors
     target_compile_options(aoo_common INTERFACE -Werror=return-type)
 
@@ -343,6 +357,7 @@ if (CMAKE_COMPILER_IS_GNUCXX OR CMAKE_COMPILER_IS_CLANG)
     endif()
 
     option(AOO_NATIVE "optimize for this machine (not portable!)" OFF)
+    message(STATUS "Optimize for this machine: ${AOO_NATIVE}")
     if (AOO_NATIVE)
         target_compile_options(aoo_common INTERFACE -march=native)
     endif()
@@ -411,14 +426,18 @@ add_subdirectory(deps/oscpack)
 #-----------------------------------------------------------------
 # AOO library
 #-----------------------------------------------------------------
-message(STATUS "\n*** AOO library ***\n")
+message(STATUS "")
+message(STATUS "*** AOO library ***")
+message(STATUS "")
 add_subdirectory(aoo)
 
 #-----------------------------------------------------------------
 # Pd external
 #-----------------------------------------------------------------
 if (AOO_BUILD_PD_EXTERNAL)
-    message(STATUS "\n*** Pure Data external ***\n")
+    message(STATUS "")
+    message(STATUS "*** Pure Data external ***")
+    message(STATUS "")
     if (NOT AOO_NET)
         message(FATAL_ERROR "Pd external requires AOO_NET")
     endif()
@@ -432,7 +451,12 @@ if (AOO_BUILD_SC_EXTENSION)
     if (NOT AOO_NET)
         message(FATAL_ERROR "SuperCollider extension requires AOO_NET")
     endif()
-    message(STATUS "\n*** SuperCollider extension ***\n")
+    if (NOT (AOO_SAMPLE_SIZE EQUAL 32))
+        message(FATAL_ERROR "SuperCollider extensions requires AOO_SAMPLE_SIZE=32")
+    endif()
+    message(STATUS "")
+    message(STATUS "*** SuperCollider extension ***")
+    message(STATUS "")
     add_subdirectory(sc)
 endif()
 
@@ -440,7 +464,9 @@ endif()
 # aooserver program
 #-----------------------------------------------------------------
 if (AOO_BUILD_SERVER)
-    message(STATUS "\n*** AOO server ***\n")
+    message(STATUS "")
+    message(STATUS "*** AOO server ***")
+    message(STATUS "")
     if (NOT AOO_NET)
         message(FATAL_ERROR "AOO server requires AOO_NET")
     endif()
@@ -451,16 +477,24 @@ endif()
 # examples
 #-----------------------------------------------------------------
 if (AOO_BUILD_EXAMPLES)
-    message(STATUS "\n*** examples ***\n")
-    add_subdirectory(examples/c)
-    add_subdirectory(examples/cpp)
+    message(STATUS "")
+    message(STATUS "*** examples ***")
+    message(STATUS "")
+    if (AOO_SAMPLE_SIZE EQUAL 32)
+        add_subdirectory(examples/c)
+        add_subdirectory(examples/cpp)
+    else()
+        message(WARNING "Examples require AOO_SAMPLE_SIZE=32 - skipping")
+    endif()
 endif()
 
 #-----------------------------------------------------------------
 # test suite
 #-----------------------------------------------------------------
 if (AOO_BUILD_TESTS)
-    message(STATUS "\n*** Test suite ***\n")
+    message(STATUS "")
+    message(STATUS "*** Test suite ***")
+    message(STATUS "")
     add_subdirectory(tests)
 endif()
 
@@ -468,6 +502,8 @@ endif()
 # doxygen documentation
 #-----------------------------------------------------------------
 if (AOO_BUILD_DOCUMENTATION)
-    message(STATUS "\n*** Documentation ***\n")
+    message(STATUS "")
+    message(STATUS "*** Documentation ***")
+    message(STATUS "")
     add_subdirectory(doxygen)
 endif()

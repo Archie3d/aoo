@@ -145,7 +145,7 @@ AooError AOO_CALL aoo::net::Server::run(AooSeconds timeout) {
                 for (auto& [id, client] : clients_) {
                     auto [timeout, wait] = client.update(*this, now, settings);
                     if (timeout) {
-                        LOG_VERBOSE("AooServer: client " << id << " not responding");
+                        LOG_INFO("AooServer: client " << id << " not responding");
                         client_timeouts.push_back(id);
                     } else if (wait < sleep) {
                         sleep = wait;
@@ -289,7 +289,7 @@ AooError AOO_CALL aoo::net::Server::pollEvents(){
     // always thread-safe
     event_handler fn(event_handler_, event_context_, kAooThreadLevelUnknown);
     event_ptr e;
-    while (event_queue_.try_pop(e)){
+    while (event_queue_.pop(e)){
         e->dispatch(fn);
     }
     return kAooOk;
@@ -578,7 +578,11 @@ T& as(void *p){
     return *reinterpret_cast<T *>(p);
 }
 
-#define CHECKARG(type) assert(size == sizeof(type))
+#define CHECKARG(type)                  \
+    assert(size == sizeof(type));       \
+    if (size != sizeof(type)) {         \
+        return kAooErrorBadArgument;    \
+}                                       \
 
 AooError AOO_CALL aoo::net::Server ::groupControl(
         AooId group, AooCtl ctl, AooIntPtr index,

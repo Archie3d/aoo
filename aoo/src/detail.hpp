@@ -50,8 +50,8 @@ using string = std::basic_string<char, std::char_traits<char>, aoo::allocator<ch
 template<typename T>
 using spsc_queue = lockfree::spsc_queue<T, aoo::allocator<T>>;
 
-template<typename T>
-using unbounded_mpsc_queue = lockfree::unbounded_mpsc_queue<T, aoo::allocator<T>>;
+template<typename T, bool multi_producer=true>
+using concurrent_queue = lockfree::concurrent_queue<T, multi_producer, aoo::allocator<T>>;
 
 template<typename T>
 using concurrent_list = lockfree::concurrent_list<T, aoo::allocator<T>>;
@@ -221,7 +221,7 @@ struct metadata_view {
     metadata_view(const aoo::metadata& md)
         : type(md.type()), data(md.data()), size(md.size()) {}
     metadata_view (const AooData *md)
-        : type(md ? md->type : kAooDataUnspecified),
+        : type(md ? md->type : (AooDataType)kAooDataUnspecified),
           data(md ? md->data : nullptr),
           size(md ? md->size : 0) {}
 
@@ -232,7 +232,7 @@ struct metadata_view {
 
 inline osc::OutboundPacketStream& operator<<(osc::OutboundPacketStream& msg, const metadata_view& md) {
     if (md.type != kAooDataUnspecified) {
-        msg << md.type << osc::Blob(md.data, md.size);
+        msg << md.type << osc::Blob(md.data, (int32_t)md.size);
     } else {
         msg << osc::Nil << osc::Nil;
     }

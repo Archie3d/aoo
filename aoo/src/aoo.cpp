@@ -39,6 +39,10 @@
 # include "esp_system.h"
 #endif
 
+#ifdef __EMSCRIPTEN__
+# include <emscripten/emscripten.h>
+#endif
+
 //--------------------- interface table -------------------//
 
 namespace aoo {
@@ -69,14 +73,16 @@ int32_t get_random_id(){
     return esp_random() & 0x7fffffff;
 #else
     // software PRNG
+    // std::minstd_rand is fast, uses very little memory
+    // and is good enough for our purposes.
+# if defined (__EMSCRIPTEN__)
+    // std::random_device is not supported in AudioWorklets,
+    // so we seed the engine it with the browser time instead.
+    thread_local std::minstd_rand eng((uint32_t)(emscripten_get_now() * 1e6));
+# else
     static std::random_device rd;
-#if 0
-    // WARNING: needs lots of memory!
-    thread_local std::mt19937 eng(rd());
-#else
-    // good enough for our purposes
     thread_local std::minstd_rand eng(rd());
-#endif
+# endif
     std::uniform_int_distribution<int32_t> dist;
     return dist(eng);
 #endif
@@ -106,11 +112,14 @@ void AOO_CALL default_logfunc(AooLogLevel level, const char *message) {
     case kAooLogLevelWarning:
         label = "warning";
         break;
-    case kAooLogLevelVerbose:
-        label = "verbose";
+    case kAooLogLevelInfo:
+        label = "info";
         break;
     case kAooLogLevelDebug:
         label = "debug";
+        break;
+    case kAooLogLevelVerbose:
+        label = "verbose";
         break;
     default:
         break;
@@ -779,7 +788,7 @@ void rt_memory_pool_unref() {
     sync::scoped_lock<sync::mutex> l(g_rt_memory_pool_lock);
     if (--g_rt_memory_pool_refcount == 0) {
         LOG_DEBUG("total RT memory usage: " << g_rt_memory_pool.memory_usage()
-                  << " / " << g_rt_memory_pool.size() << " bytes");
+                  << " / " << g_rt_memory_pool.capacity() << " bytes");
         g_rt_memory_pool.reset();
     }
     // LOG_DEBUG("rt_memory_pool_unref: " << g_rt_memory_pool_refcount);
@@ -820,7 +829,7 @@ AOO_API AooError AOO_CALL aoo_registerCodec(const AooCodecInterface *codec){
         return kAooErrorAlreadyExists;
     }
     aoo::g_codec_list.emplace_back(codec->name, codec);
-    LOG_VERBOSE("registered codec '" << codec->name << "'");
+    LOG_INFO("registered codec '" << codec->name << "'");
     return kAooOk;
 }
 

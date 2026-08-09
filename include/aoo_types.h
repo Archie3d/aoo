@@ -97,7 +97,7 @@ typedef AooUInt32 AooFlag;
 typedef float AooSample;
 #elif AOO_SAMPLE_SIZE == 64
 /** \brief audio sample type */
-typedef double AooSample
+typedef double AooSample;
 #else
 # error "unsupported value for AOO_SAMPLE_SIZE"
 #endif
@@ -273,8 +273,8 @@ AOO_FLAG(AooSetupFlags)
      * will always equal the block size. */
     kAooFixedBlockSize = 0x01,
     /** assume that the timestamps are sufficiently precise;
-     * for example, they come from a very precise network clock
-     * or they have already been filtered. */
+     * for example, your host or audio backend might be able
+     * to provide accurate system time snapshots. */
     kAooPreciseTimestamp = 0x02
 };
 
@@ -663,7 +663,7 @@ typedef struct AooClientSettings
 typedef struct AooClientConnect {
 #ifdef __cplusplus
     AooClientConnect()
-        : structSize(AOO_STRUCT_SIZE(AooClientConnect, metadata)),
+        : structSize(AOO_STRUCT_SIZE(AooClientConnect, timeout)),
           hostName(NULL), port(0), password(NULL), metadata(NULL),
           timeout(0) {}
 #endif
@@ -686,7 +686,7 @@ typedef struct AooClientConnect {
 
 /** \brief (C only) default initializer for AooClientConnect struct */
 #define AOO_CLIENT_CONNECT_INIT() \
-    { AOO_STRUCT_SIZE(AooClientConnect, metadata), \
+    { AOO_STRUCT_SIZE(AooClientConnect, timeout), \
         NULL, 0, NULL, NULL, 0 }
 
 /*------------------------------------------------------------------*/
@@ -745,7 +745,7 @@ typedef struct AooServerSettings
 #ifdef __cplusplus
     /** default constructor */
     AooServerSettings()
-        : structSize(AOO_STRUCT_SIZE(AooServerSettings, userData)),
+        : structSize(AOO_STRUCT_SIZE(AooServerSettings, sendFunc)),
           options(0), portNumber(0), socketType(kAooSocketDefault),
           userData(NULL), sendFunc(NULL) {}
 #endif
@@ -767,7 +767,7 @@ typedef struct AooServerSettings
 
 /** \brief (C only) default initializer for AooServerSettings struct */
 #define AOO_SERVER_SETTINGS_INIT() \
-    { AOO_STRUCT_SIZE(AooServerSettings, userData), 0, 0, \
+    { AOO_STRUCT_SIZE(AooServerSettings, sendFunc), 0, 0, \
         kAooSocketDefault, NULL, NULL }
 
 /*------------------------------------------------------------------*/
@@ -859,18 +859,20 @@ typedef void * (AOO_CALL *AooAllocFunc)
 typedef AooInt32 AooLogLevel;
 
 /* NB: log level constants must be macros, otherwise they cannot
- * be used in #if clause, as they would expand to zero! */
+ * be used in #if clauses as they would expand to zero! */
 
-/** no logging */
-#define kAooLogLevelNone 0
-/** only errors */
+/** \brief no logging */
+#define kAooLogLevelSilent 0
+/** \brief only log errors */
 #define kAooLogLevelError 1
-/** only errors and warnings */
+/** \brief log errors and warnings */
 #define kAooLogLevelWarning 2
-/** errors, warnings and notifications */
-#define kAooLogLevelVerbose 3
-/** errors, warnings, notifications and debug messages */
+/** \brief log errors, warnings and info messages */
+#define kAooLogLevelInfo 3
+/** \brief log errors, warnings, info and debug messages */
 #define kAooLogLevelDebug 4
+/** \brief extra verbose logging */
+#define kAooLogLevelVerbose 5
 
 /** \brief custom log function type
  * \param level the log level

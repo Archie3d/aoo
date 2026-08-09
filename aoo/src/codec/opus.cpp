@@ -18,7 +18,7 @@ namespace {
 //---------------- helper functions -----------------//
 
 void print_format(const AooFormatOpus& f){
-#if AOO_LOG_LEVEL >= kAooLogLevelVerbose
+#if AOO_LOG_LEVEL >= kAooLogLevelInfo
     const char *application;
 
     switch (f.applicationType){
@@ -33,11 +33,11 @@ void print_format(const AooFormatOpus& f){
         break;
     }
 
-    LOG_VERBOSE("Opus settings: "
-                << "nchannels = " << f.header.numChannels
-                << ", blocksize = " << f.header.blockSize
-                << ", samplerate = " << f.header.sampleRate
-                << ", application = " << application);
+    LOG_INFO("Opus settings: "
+             << "nchannels = " << f.header.numChannels
+             << ", blocksize = " << f.header.blockSize
+             << ", samplerate = " << f.header.sampleRate
+             << ", application = " << application);
 #endif
 }
 
@@ -61,8 +61,8 @@ bool validate_format(AooFormatOpus& f, bool loud = true)
         break;
     default:
         if (loud){
-            LOG_VERBOSE("Opus: samplerate " << f.header.sampleRate
-                        << " not supported - using 48000");
+            LOG_INFO("Opus: samplerate " << f.header.sampleRate
+                     << " not supported - using 48000");
         }
         f.header.sampleRate = 48000;
         break;
@@ -125,6 +125,10 @@ struct Encoder : AooCodec {
     size_t size_ = 0;
     int sampleRate_ = 0;
     int applicationType_ = 0;
+#if AOO_SAMPLE_SIZE == 64
+    int numChannels_ = 0;
+    std::vector<float, aoo::allocator<float>> buffer_;
+#endif
 };
 
 AooCodec * AOO_CALL Encoder_new() {
@@ -178,6 +182,10 @@ AooError AOO_CALL Encoder_setup(AooCodec *c, AooFormat *f) {
     enc->size_ = size;
     enc->sampleRate_ = fmt->header.sampleRate;
     enc->applicationType_ = fmt->applicationType;
+#if AOO_SAMPLE_SIZE == 64
+    enc->numChannels_ = nchannels;
+    enc->buffer_.resize(nchannels * fmt->header.blockSize);
+#endif
 
     return kAooOk;
 }
@@ -289,13 +297,23 @@ AooError Encoder_encode(
         AooByte *outData, AooInt32 *outSize)
 {
     auto enc = static_cast<Encoder*>(c);
+#if AOO_SAMPLE_SIZE == 64
+    auto nsamples = frameSize * enc->numChannels_;
+    auto buffer = enc->buffer_.data();
+    for (int32_t i = 0; i < nsamples; ++i) {
+        buffer[i] = inSamples[i];
+    }
+    auto result = opus_multistream_encode_float(
+        enc->state_, buffer, frameSize, (unsigned char *)outData, *outSize);
+#else
     auto result = opus_multistream_encode_float(
         enc->state_, inSamples, frameSize, (unsigned char *)outData, *outSize);
+#endif
     if (result > 0){
         *outSize = result;
         return kAooOk;
     } else {
-        LOG_VERBOSE("Opus: opus_encode_float() failed with error code " << result);
+        LOG_INFO("Opus: opus_encode_float() failed with error code " << result);
         // LATER try to translate Opus error codes to AOO error codes?
         return kAooErrorCodec;
     }
@@ -311,6 +329,10 @@ struct Decoder : AooCodec {
     size_t size_ = 0;
     int sampleRate_ = 0;
     int applicationType_ = 0;
+#if AOO_SAMPLE_SIZE == 64
+    int numChannels_ = 0;
+    std::vector<float, aoo::allocator<float>> buffer_;
+#endif
 };
 
 AooCodec * AOO_CALL Decoder_new() {
@@ -363,6 +385,10 @@ AooError AOO_CALL Decoder_setup(AooCodec *c, AooFormat *f) {
     dec->size_ = size;
     dec->sampleRate_ = fmt->header.sampleRate;
     dec->applicationType_ = fmt->applicationType;
+#if AOO_SAMPLE_SIZE == 64
+    dec->numChannels_ = nchannels;
+    dec->buffer_.resize(nchannels * fmt->header.blockSize);
+#endif
 
     return kAooOk;
 }
@@ -395,13 +421,23 @@ AooError Decoder_decode(
         AooSample *outSamples, AooInt32 *frameSize)
 {
     auto d = static_cast<Decoder *>(c);
+#if AOO_SAMPLE_SIZE == 64
+    auto buffer = d->buffer_.data();
+    auto result = opus_multistream_decode_float(
+        d->state_, (const unsigned char *)inData, size, buffer, *frameSize, 0);
+    auto nsamples = *frameSize * d->numChannels_;
+    for (int32_t i = 0; i < nsamples; ++i) {
+        outSamples[i] = buffer[i];
+    }
+#else
     auto result = opus_multistream_decode_float(
         d->state_, (const unsigned char *)inData, size, outSamples, *frameSize, 0);
+#endif
     if (result > 0){
         *frameSize = result;
         return kAooOk;
     } else {
-        LOG_VERBOSE("Opus: opus_decode_float() failed with error code " << result);
+        LOG_INFO("Opus: opus_decode_float() failed with error code " << result);
         // LATER try to translate Opus error codes to AOO error codes?
         return kAooErrorCodec;
     }

@@ -26,6 +26,10 @@ public:
 
     void leaveGroup(int token, AooId group);
 
+    void updateGroup(int token, AooId group, const AooData& groupMetadata);
+
+    void updateUser(int token, AooId group, const AooData& userMetadata);
+
     void handleEvent(const AooEvent* e);
 
     void setPingInterval(AooSeconds s) {
@@ -38,6 +42,20 @@ public:
     void setPacketSize(AooInt32 size) {
         node_->client()->setPacketSize(size);
     }
+
+    // simulate bad network
+    void setSimulatePacketLoss(float pct) {
+        node_->client()->control(kAooCtlSetSimulatePacketLoss, 0, AOO_ARG(pct));
+    }
+
+    void setSimulatePacketReorder(AooSeconds s) {
+        node_->client()->control(kAooCtlSetSimulatePacketReorder, 0, AOO_ARG(s));
+    }
+
+    void setSimulatePacketJitter(AooBool b) {
+        node_->client()->control(kAooCtlSetSimulatePacketJitter, 0, AOO_ARG(b));
+    }
+
 private:
     std::shared_ptr<INode> node_;
 
@@ -86,6 +104,13 @@ struct GroupJoinCmd : AooClientCmd {
 
 struct GroupLeaveCmd : AooClientCmd {
     AooId group;
+};
+
+struct UpdateCmd : AooClientCmd {
+    ~UpdateCmd();
+
+    AooId groupID;
+    AooData metadata;
 };
 
 struct ControlCmd : AooClientCmd {

@@ -48,25 +48,25 @@ AooNode::AooNode(int port) {
     // start network I/O thread
     LOG_DEBUG("start network thread");
     iothread_ = std::thread([this](){
-        aoo::sync::lower_thread_priority();
+        aoo::sync::set_low_realtime_priority();
         performNetworkIO();
     });
 #else
     // start send thread
     LOG_DEBUG("start network send thread");
     sendThread_ = std::thread([this](){
-        aoo::sync::lower_thread_priority();
+        aoo::sync::set_low_realtime_priority();
         send();
     });
     // start receive thread
     LOG_DEBUG("start network receive thread");
     receiveThread_ = std::thread([this](){
-        aoo::sync::lower_thread_priority();
+        aoo::sync::set_low_realtime_priority();
         receive();
     });
 #endif
 
-    LOG_VERBOSE("new node on port " << port);
+    LOG_INFO("new node on port " << port);
 }
 
 AooNode::~AooNode() {
@@ -94,7 +94,7 @@ AooNode::~AooNode() {
     }
 #endif
 
-    LOG_VERBOSE("release node on port " << port_);
+    LOG_INFO("release node on port " << port_);
 }
 
 // NB: nodes are always unique, so we don't need to keep a per-world dictionary!
@@ -137,7 +137,8 @@ bool AooNode::registerClient(sc::AooClient *c){
 
     if (!clientThread_.joinable()){
         // lazily create client thread
-        clientThread_ = std::thread([this](){
+        clientThread_ = std::thread([this]() {
+            aoo::sync::set_low_realtime_priority();
             client_->run(kAooInfinite);
         });
     }
@@ -170,8 +171,9 @@ void AooNode::handleMessage(const AooByte *data, int32_t size) {
             if (bundle.ElementCount() < 1) {
                 throw osc::Exception("empty bundle");
             }
-            auto& elem = *bundle.ElementsBegin();
-            osc::ReceivedMessage msg(elem);
+            // NB: save the iterator on the stack!
+            auto it = bundle.ElementsBegin();
+            osc::ReceivedMessage msg(*it);
             handleMessage(time, msg);
         } else {
             osc::ReceivedMessage msg(packet);
